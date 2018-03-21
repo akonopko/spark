@@ -64,8 +64,7 @@ private[spark] class TaskSetManager(
   val SPECULATION_QUANTILE = conf.getDouble("spark.speculation.quantile", 0.75)
   val SPECULATION_MULTIPLIER = conf.getDouble("spark.speculation.multiplier", 1.5)
 
-  // Limit of bytes for total size of results (default is 1GB)
-  val maxResultSize = Utils.getMaxResultSize(conf)
+  val maxResultSize = conf.get(config.MAX_RESULT_SIZE)
 
   val speculationEnabled = conf.getBoolean("spark.speculation", false)
 
@@ -83,6 +82,11 @@ private[spark] class TaskSetManager(
   val successful = new Array[Boolean](numTasks)
   private val numFailures = new Array[Int](numTasks)
 
+  // Set the coresponding index of Boolean var when the task killed by other attempt tasks,
+  // this happened while we set the `spark.speculation` to true. The task killed by others
+  // should not resubmit while executor lost.
+  private val killedByOtherAttempt: Array[Boolean] = new Array[Boolean](numTasks)
+
   val taskAttempts = Array.fill[List[TaskInfo]](numTasks)(Nil)
   private[scheduler] var tasksSuccessful = 0
 
@@ -97,7 +101,7 @@ private[spark] class TaskSetManager(
 
   private[scheduler] val taskSetBlacklistHelperOpt: Option[TaskSetBlacklist] = {
     blacklistTracker.map { _ =>
-      new TaskSetBlacklist(conf, stageId, clock)
+      new TaskSetBlacklist(sched.sc.listenerBus, conf, stageId, taskSet.stageAttemptId, clock)
     }
   }
 
@@ -483,11 +487,11 @@ private[spark] class TaskSetManager(
             abort(s"$msg Exception during serialization: $e")
             throw new TaskNotSerializableException(e)
         }
-        if (serializedTask.limit > TaskSetManager.TASK_SIZE_TO_WARN_KB * 1024 &&
+        if (serializedTask.limit() > TaskSetManager.TASK_SIZE_TO_WARN_KB * 1024 &&
           !emittedTaskSizeWarning) {
           emittedTaskSizeWarning = true
           logWarning(s"Stage ${task.stageId} contains a task of very large size " +
-            s"(${serializedTask.limit / 1024} KB). The maximum recommended task size is " +
+            s"(${serializedTask.limit() / 1024} KB). The maximum recommended task size is " +
             s"${TaskSetManager.TASK_SIZE_TO_WARN_KB} KB.")
         }
         addRunningTask(taskId)
@@ -497,7 +501,7 @@ private[spark] class TaskSetManager(
         // val timeTaken = clock.getTime() - startTime
         val taskName = s"task ${info.id} in stage ${taskSet.id}"
         logInfo(s"Starting $taskName (TID $taskId, $host, executor ${info.executorId}, " +
-          s"partition ${task.partitionId}, $taskLocality, ${serializedTask.limit} bytes)")
+          s"partition ${task.partitionId}, $taskLocality, ${serializedTask.limit()} bytes)")
 
         sched.dagScheduler.taskStarted(task, info)
         new TaskDescription(
@@ -729,6 +733,7 @@ private[spark] class TaskSetManager(
       logInfo(s"Killing attempt ${attemptInfo.attemptNumber} for task ${attemptInfo.id} " +
         s"in stage ${taskSet.id} (TID ${attemptInfo.taskId}) on ${attemptInfo.host} " +
         s"as the attempt ${info.attemptNumber} succeeded on ${info.host}")
+      killedByOtherAttempt(index) = true
       sched.backend.killTask(
         attemptInfo.taskId,
         attemptInfo.executorId,
@@ -915,7 +920,7 @@ private[spark] class TaskSetManager(
         && !isZombie) {
       for ((tid, info) <- taskInfos if info.executorId == execId) {
         val index = taskInfos(tid).index
-        if (successful(index)) {
+        if (successful(index) && !killedByOtherAttempt(index)) {
           successful(index) = false
           copiesRunning(index) -= 1
           tasksSuccessful -= 1

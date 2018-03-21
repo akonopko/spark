@@ -17,7 +17,7 @@
 
 package org.apache.spark.deploy
 
-import java.io.{ByteArrayOutputStream, PrintStream}
+import java.io.{ByteArrayOutputStream, File, PrintStream}
 import java.lang.reflect.InvocationTargetException
 import java.net.URI
 import java.nio.charset.StandardCharsets
@@ -233,7 +233,7 @@ private[deploy] class SparkSubmitArguments(args: Seq[String], env: Map[String, S
     // Set name from main class if not given
     name = Option(name).orElse(Option(mainClass)).orNull
     if (name == null && primaryResource != null) {
-      name = Utils.stripDirectory(primaryResource)
+      name = new File(primaryResource).getName()
     }
 
     // Action should be SUBMIT unless otherwise specified
@@ -515,8 +515,8 @@ private[deploy] class SparkSubmitArguments(args: Seq[String], env: Map[String, S
     outStream.println(
       s"""
         |Options:
-        |  --master MASTER_URL         spark://host:port, mesos://host:port, yarn, or local
-        |                              (Default: local[*]).
+        |  --master MASTER_URL         spark://host:port, mesos://host:port, yarn,
+        |                              k8s://https://host:port, or local (Default: local[*]).
         |  --deploy-mode DEPLOY_MODE   Whether to launch the driver program locally ("client") or
         |                              on one of the worker machines inside the cluster ("cluster")
         |                              (Default: client).

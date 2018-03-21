@@ -41,6 +41,7 @@ import org.apache.spark.rpc.{RpcCallContext, RpcEndpointRef}
 import org.apache.spark.scheduler.{ExecutorExited, ExecutorLossReason}
 import org.apache.spark.scheduler.cluster.CoarseGrainedClusterMessages.RemoveExecutor
 import org.apache.spark.scheduler.cluster.CoarseGrainedClusterMessages.RetrieveLastAllocatedExecutorId
+import org.apache.spark.scheduler.cluster.SchedulerBackendUtils
 import org.apache.spark.util.{Clock, SystemClock, ThreadUtils}
 
 /**
@@ -109,7 +110,7 @@ private[yarn] class YarnAllocator(
     sparkConf.get(EXECUTOR_ATTEMPT_FAILURE_VALIDITY_INTERVAL_MS).getOrElse(-1L)
 
   @volatile private var targetNumExecutors =
-    YarnSparkHadoopUtil.getInitialTargetExecutorNumber(sparkConf)
+    SchedulerBackendUtils.getInitialTargetExecutorNumber(sparkConf)
 
   private var currentNodeBlacklist = Set.empty[String]
 
@@ -735,7 +736,8 @@ private object YarnAllocator {
   def memLimitExceededLogMessage(diagnostics: String, pattern: Pattern): String = {
     val matcher = pattern.matcher(diagnostics)
     val diag = if (matcher.find()) " " + matcher.group() + "." else ""
-    ("Container killed by YARN for exceeding memory limits." + diag
-      + " Consider boosting spark.yarn.executor.memoryOverhead.")
+    s"Container killed by YARN for exceeding memory limits. $diag " +
+      "Consider boosting spark.yarn.executor.memoryOverhead or " +
+      "disabling yarn.nodemanager.vmem-check-enabled because of YARN-4714."
   }
 }

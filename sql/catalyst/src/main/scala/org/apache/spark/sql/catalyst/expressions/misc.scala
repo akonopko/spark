@@ -31,7 +31,12 @@ case class PrintToStderr(child: Expression) extends UnaryExpression {
 
   override def dataType: DataType = child.dataType
 
-  protected override def nullSafeEval(input: Any): Any = input
+  protected override def nullSafeEval(input: Any): Any = {
+    // scalastyle:off println
+    System.err.println(outputPrefix + input)
+    // scalastyle:on println
+    input
+  }
 
   private val outputPrefix = s"Result of ${child.simpleString} is "
 
@@ -81,7 +86,7 @@ case class AssertTrue(child: Expression) extends UnaryExpression with ImplicitCa
 
     // Use unnamed reference that doesn't create a local field here to reduce the number of fields
     // because errMsgField is used only when the value is null or false.
-    val errMsgField = ctx.addReferenceMinorObj(errMsg)
+    val errMsgField = ctx.addReferenceObj("errMsg", errMsg)
     ExprCode(code = s"""${eval.code}
        |if (${eval.isNull} || !${eval.value}) {
        |  throw new RuntimeException($errMsgField);
@@ -119,7 +124,7 @@ case class CurrentDatabase() extends LeafExpression with Unevaluable {
 // scalastyle:on line.size.limit
 case class Uuid() extends LeafExpression {
 
-  override def deterministic: Boolean = false
+  override lazy val deterministic: Boolean = false
 
   override def nullable: Boolean = false
 
